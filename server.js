@@ -18,7 +18,13 @@ function normaliza(s) {
 const server = http.createServer(async function(req, res) {
   try {
     const params = new URL(req.url, "http://localhost");
+
+    // Aceita tanto /Curitiba quanto /?cidade=Curitiba
     let cidade = params.searchParams.get("cidade") || "";
+    if (!cidade) {
+      cidade = params.pathname.replace(/^\//, "");
+    }
+
     cidade = decodeURIComponent(cidade).replace(/\+/g, " ");
     cidade = cidade.split(" ").filter(function(p) { return p.indexOf("$(") !== 0; }).join(" ").trim();
 
