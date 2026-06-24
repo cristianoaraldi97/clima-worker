@@ -27,6 +27,7 @@ const server = http.createServer(async function(req, res) {
 
     cidade = decodeURIComponent(cidade).replace(/\+/g, " ");
     cidade = cidade.split(" ").filter(function(p) { return p.indexOf("$(") !== 0; }).join(" ").trim();
+    cidade = cidade.replace(/-+$/, "").replace(/^-+/, "").replace(/-{2,}/g, "-");
 
     if (!cidade) return res.end("Use ?cidade=NomeDaCidade");
 
