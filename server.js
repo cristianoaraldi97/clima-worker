@@ -11,58 +11,19 @@ function get(url) {
   });
 }
 
-function normaliza(s) {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-}
-
 const server = http.createServer(async function(req, res) {
   try {
     const params = new URL(req.url, "http://localhost");
+    let cidade = params.pathname.replace(/^\//, "");
+    cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-/g, " ");
+    cidade = cidade.split(" ").filter(function(p) { return p.indexOf("$(") !== 0 && p.length > 0; }).join(" ").trim();
 
-    // Aceita tanto /Curitiba quanto /?cidade=Curitiba
-    let cidade = params.searchParams.get("cidade") || "";
-    if (!cidade) {
-      cidade = params.pathname.replace(/^\//, "");
-    }
-
-    cidade = decodeURIComponent(cidade).replace(/\+/g, " ");
-    cidade = cidade.split(" ").filter(function(p) { return p.indexOf("$(") !== 0; }).join(" ").trim();
-    cidade = cidade.replace(/-+$/, "").replace(/^-+/, "").replace(/-{2,}/g, "-");
-
-    if (!cidade) return res.end("Use ?cidade=NomeDaCidade");
-
-    const municipios = await get("https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome");
-    const nomeBusca = normaliza(cidade.split(",")[0].trim());
-    const ufFiltro = cidade.indexOf(",") !== -1 ? cidade.split(",")[1].trim().toUpperCase() : null;
-
-    let encontrados = municipios.filter(function(m) { return normaliza(m.nome) === nomeBusca; });
-    if (encontrados.length === 0) encontrados = municipios.filter(function(m) { return normaliza(m.nome).indexOf(nomeBusca) !== -1; });
-    if (encontrados.length === 0) return res.end("Cidade nao encontrada: " + cidade);
-
-    if (ufFiltro) {
-      const comUF = encontrados.filter(function(m) { return m.microrregiao.mesorregiao.UF.sigla.toUpperCase() === ufFiltro; });
-      if (comUF.length > 0) encontrados = comUF;
-    }
-
-    const municipio = encontrados[0];
-    const ufSigla = municipio.microrregiao.mesorregiao.UF.sigla;
-    const ufNome = municipio.microrregiao.mesorregiao.UF.nome;
-
-    const geo = await get("https://nominatim.openstreetmap.org/search?q=" + encodeURIComponent(municipio.nome + ", " + ufNome + ", Brasil") + "&format=json&limit=5&countrycodes=br&addressdetails=1");
-    if (!Array.isArray(geo) || geo.length === 0) return res.end("Coordenadas nao encontradas: " + municipio.nome);
-
-    let melhor = geo[0];
-    for (let i = 0; i < geo.length; i++) {
-      if (geo[i].address && geo[i].address.state && normaliza(geo[i].address.state).indexOf(normaliza(ufNome)) !== -1) {
-        melhor = geo[i];
-        break;
-      }
-    }
+    if (!cidade) return res.end("Use /NomeDaCidade");
 
     const apiKey = "3a9be70b9ba044e3a81150545262206";
-    const data = await get("https://api.weatherapi.com/v1/current.json?key=" + apiKey + "&q=" + melhor.lat + "," + melhor.lon + "&lang=pt");
+    const data = await get("https://api.weatherapi.com/v1/current.json?key=" + apiKey + "&q=" + encodeURIComponent(cidade + ", Brazil") + "&lang=pt");
 
-    if (data.error) return res.end("Erro: " + data.error.message);
+    if (data.error) return res.end("Cidade nao encontrada: " + cidade);
 
     const cond = data.current.condition.text.toLowerCase();
     let emoji = "\uD83C\uDF21\uFE0F";
@@ -75,15 +36,7 @@ const server = http.createServer(async function(req, res) {
     else if (cond.indexOf("parcialmente") !== -1) emoji = "\uD83C\uDF24\uFE0F";
 
     res.end(
-      emoji + " " + municipio.nome + ", " + ufSigla + " | " +
+      emoji + " " + data.location.name + ", " + data.location.region + " | " +
       "\uD83C\uDF21\uFE0F " + data.current.temp_c + "C (sensacao " + data.current.feelslike_c + "C) | " +
       data.current.condition.text + " | " +
       "Umidade " + data.current.humidity + "% | " +
-      "Vento " + data.current.wind_kph + " km/h"
-    );
-  } catch(e) {
-    res.end("Erro interno: " + e.message);
-  }
-});
-
-server.listen(process.env.PORT || 3000);
