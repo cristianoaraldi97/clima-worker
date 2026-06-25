@@ -20,7 +20,7 @@ const server = http.createServer(async function(req, res) {
     let cidade = params.pathname.replace(/^\//, "");
     cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-/g, " ");
     cidade = cidade.split(" ").filter(function(p) {
-      return p.indexOf("$(") !== 0 && p.length > 0;
+      return p.length > 0 && p.indexOf("$(") === -1;
     }).join(" ").trim();
 
     if (!cidade) {
