@@ -6,7 +6,10 @@ function get(url) {
     https.get(url, { headers: { "User-Agent": "clima-bot" } }, function(res) {
       let data = "";
       res.on("data", function(chunk) { data += chunk; });
-      res.on("end", function() { resolve(JSON.parse(data)); });
+      res.on("end", function() {
+        try { resolve(JSON.parse(data)); }
+        catch(e) { reject(e); }
+      });
     }).on("error", reject);
   });
 }
@@ -16,14 +19,25 @@ const server = http.createServer(async function(req, res) {
     const params = new URL(req.url, "http://localhost");
     let cidade = params.pathname.replace(/^\//, "");
     cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-/g, " ");
-    cidade = cidade.split(" ").filter(function(p) { return p.indexOf("$(") !== 0 && p.length > 0; }).join(" ").trim();
+    cidade = cidade.split(" ").filter(function(p) {
+      return p.indexOf("$(") !== 0 && p.length > 0;
+    }).join(" ").trim();
 
-    if (!cidade) return res.end("Use /NomeDaCidade");
+    if (!cidade) {
+      res.end("Use /NomeDaCidade");
+      return;
+    }
 
     const apiKey = "3a9be70b9ba044e3a81150545262206";
-    const data = await get("https://api.weatherapi.com/v1/current.json?key=" + apiKey + "&q=" + encodeURIComponent(cidade + ", Brazil") + "&lang=pt");
+    const data = await get(
+      "https://api.weatherapi.com/v1/current.json?key=" + apiKey +
+      "&q=" + encodeURIComponent(cidade + ", Brazil") + "&lang=pt"
+    );
 
-    if (data.error) return res.end("Cidade nao encontrada: " + cidade);
+    if (data.error) {
+      res.end("Cidade nao encontrada: " + cidade);
+      return;
+    }
 
     const cond = data.current.condition.text.toLowerCase();
     let emoji = "\uD83C\uDF21\uFE0F";
@@ -40,3 +54,11 @@ const server = http.createServer(async function(req, res) {
       "\uD83C\uDF21\uFE0F " + data.current.temp_c + "C (sensacao " + data.current.feelslike_c + "C) | " +
       data.current.condition.text + " | " +
       "Umidade " + data.current.humidity + "% | " +
+      "Vento " + data.current.wind_kph + " km/h"
+    );
+  } catch(e) {
+    res.end("Erro interno: " + e.message);
+  }
+});
+
+server.listen(process.env.PORT || 3000);
