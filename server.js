@@ -1,9 +1,10 @@
 const http = require("http");
 const https = require("https");
 
-function get(url) {
+function get(url, headers) {
   return new Promise(function(resolve, reject) {
-    https.get(url, { headers: { "User-Agent": "clima-bot" } }, function(res) {
+    const opts = { headers: headers || { "User-Agent": "clima-bot" } };
+    https.get(url, opts, function(res) {
       let data = "";
       res.on("data", function(chunk) { data += chunk; });
       res.on("end", function() {
@@ -12,6 +13,10 @@ function get(url) {
       });
     }).on("error", reject);
   });
+}
+
+function normaliza(s) {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
 const server = http.createServer(async function(req, res) {
@@ -28,14 +33,65 @@ const server = http.createServer(async function(req, res) {
       return;
     }
 
+    // Passo 1: IBGE
+    const municipios = await get(
+      "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome"
+    );
+
+    const nomeBusca = normaliza(cidade.split(",")[0].trim());
+    const ufFiltro = cidade.indexOf(",") !== -1 ? cidade.split(",")[1].trim().toUpperCase() : null;
+
+    let encontrados = municipios.filter(function(m) { return normaliza(m.nome) === nomeBusca; });
+    if (encontrados.length === 0) {
+      encontrados = municipios.filter(function(m) { return normaliza(m.nome).indexOf(nomeBusca) !== -1; });
+    }
+    if (encontrados.length === 0) {
+      res.end("Cidade nao encontrada: " + cidade);
+      return;
+    }
+
+    if (ufFiltro) {
+      const comUF = encontrados.filter(function(m) {
+        return m.microrregiao.mesorregiao.UF.sigla.toUpperCase() === ufFiltro;
+      });
+      if (comUF.length > 0) encontrados = comUF;
+    }
+
+    const municipio = encontrados[0];
+    const ufSigla = municipio.microrregiao.mesorregiao.UF.sigla;
+    const ufNome = municipio.microrregiao.mesorregiao.UF.nome;
+
+    // Passo 2: Nominatim
+    const geo = await get(
+      "https://nominatim.openstreetmap.org/search?q=" +
+      encodeURIComponent(municipio.nome + ", " + ufNome + ", Brasil") +
+      "&format=json&limit=5&countrycodes=br&addressdetails=1",
+      { "User-Agent": "clima-bot" }
+    );
+
+    if (!Array.isArray(geo) || geo.length === 0) {
+      res.end("Coordenadas nao encontradas: " + municipio.nome);
+      return;
+    }
+
+    let melhor = geo[0];
+    for (let i = 0; i < geo.length; i++) {
+      if (geo[i].address && geo[i].address.state &&
+          normaliza(geo[i].address.state).indexOf(normaliza(ufNome)) !== -1) {
+        melhor = geo[i];
+        break;
+      }
+    }
+
+    // Passo 3: WeatherAPI via coordenadas
     const apiKey = "3a9be70b9ba044e3a81150545262206";
     const data = await get(
       "https://api.weatherapi.com/v1/current.json?key=" + apiKey +
-      "&q=" + encodeURIComponent(cidade + ", Brasil, BR") + "&lang=pt"
+      "&q=" + melhor.lat + "," + melhor.lon + "&lang=pt"
     );
 
     if (data.error) {
-      res.end("Cidade nao encontrada: " + cidade);
+      res.end("Erro: " + data.error.message);
       return;
     }
 
@@ -50,7 +106,7 @@ const server = http.createServer(async function(req, res) {
     else if (cond.indexOf("parcialmente") !== -1) emoji = "\uD83C\uDF24\uFE0F";
 
     res.end(
-      emoji + " " + data.location.name + ", " + data.location.region + " | " +
+      emoji + " " + municipio.nome + ", " + ufSigla + " | " +
       "\uD83C\uDF21\uFE0F " + data.current.temp_c + "C (sensacao " + data.current.feelslike_c + "C) | " +
       data.current.condition.text + " | " +
       "Umidade " + data.current.humidity + "% | " +
