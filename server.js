@@ -18,7 +18,7 @@ const server = http.createServer(async function(req, res) {
   try {
     const params = new URL(req.url, "http://localhost");
     let cidade = params.pathname.replace(/^\//, "");
-    cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-/g, " ").trim();
+    cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-$/, "").replace(/-+/g, " ").trim();
     if (!cidade) {
       res.end("Use /NomeDaCidade");
       return;
