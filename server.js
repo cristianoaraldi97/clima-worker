@@ -1,10 +1,9 @@
 const http = require("http");
 const https = require("https");
 
-function get(url, headers) {
+function get(url) {
   return new Promise(function(resolve, reject) {
-    const opts = { headers: headers || { "User-Agent": "clima-bot" } };
-    https.get(url, opts, function(res) {
+    https.get(url, { headers: { "User-Agent": "clima-bot" } }, function(res) {
       let data = "";
       res.on("data", function(chunk) { data += chunk; });
       res.on("end", function() {
@@ -15,79 +14,43 @@ function get(url, headers) {
   });
 }
 
-function normaliza(s) {
-  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
-}
-
 const server = http.createServer(async function(req, res) {
   try {
     const params = new URL(req.url, "http://localhost");
     let cidade = params.pathname.replace(/^\//, "");
-    cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-/g, " ");
-    cidade = cidade.split(" ").filter(function(p) {
-      return p.length > 0 && p.indexOf("$(") === -1;
-    }).join(" ").trim();
+    cidade = decodeURIComponent(cidade).replace(/\+/g, " ").replace(/-/g, " ").trim();
 
     if (!cidade) {
       res.end("Use /NomeDaCidade");
       return;
     }
 
-    // Passo 1: IBGE
-    const municipios = await get(
-      "https://servicodados.ibge.gov.br/api/v1/localidades/municipios?orderBy=nome"
+    const apiKey = "3a9be70b9ba044e3a81150545262206";
+
+    // Busca sugestoes e filtra pelo Brasil
+    const sugestoes = await get(
+      "https://api.weatherapi.com/v1/search.json?key=" + apiKey +
+      "&q=" + encodeURIComponent(cidade)
     );
 
-    const nomeBusca = normaliza(cidade.split(",")[0].trim());
-    const ufFiltro = cidade.indexOf(",") !== -1 ? cidade.split(",")[1].trim().toUpperCase() : null;
-
-    let encontrados = municipios.filter(function(m) { return normaliza(m.nome) === nomeBusca; });
-    if (encontrados.length === 0) {
-      encontrados = municipios.filter(function(m) { return normaliza(m.nome).indexOf(nomeBusca) !== -1; });
-    }
-    if (encontrados.length === 0) {
+    if (!Array.isArray(sugestoes) || sugestoes.length === 0) {
       res.end("Cidade nao encontrada: " + cidade);
       return;
     }
 
-    if (ufFiltro) {
-      const comUF = encontrados.filter(function(m) {
-        return m.microrregiao.mesorregiao.UF.sigla.toUpperCase() === ufFiltro;
-      });
-      if (comUF.length > 0) encontrados = comUF;
-    }
+    const brasileira = sugestoes.find(function(s) {
+      return s.country === "Brazil" || s.country === "Brasil";
+    });
 
-    const municipio = encontrados[0];
-    const ufSigla = municipio.microrregiao.mesorregiao.UF.sigla;
-    const ufNome = municipio.microrregiao.mesorregiao.UF.nome;
-
-    // Passo 2: Nominatim
-    const geo = await get(
-      "https://nominatim.openstreetmap.org/search?q=" +
-      encodeURIComponent(municipio.nome + ", " + ufNome + ", Brasil") +
-      "&format=json&limit=5&countrycodes=br&addressdetails=1",
-      { "User-Agent": "clima-bot" }
-    );
-
-    if (!Array.isArray(geo) || geo.length === 0) {
-      res.end("Coordenadas nao encontradas: " + municipio.nome);
+    if (!brasileira) {
+      res.end("Cidade nao encontrada no Brasil: " + cidade);
       return;
     }
 
-    let melhor = geo[0];
-    for (let i = 0; i < geo.length; i++) {
-      if (geo[i].address && geo[i].address.state &&
-          normaliza(geo[i].address.state).indexOf(normaliza(ufNome)) !== -1) {
-        melhor = geo[i];
-        break;
-      }
-    }
-
-    // Passo 3: WeatherAPI via coordenadas
-    const apiKey = "3a9be70b9ba044e3a81150545262206";
+    // Busca clima pelo ID exato
     const data = await get(
       "https://api.weatherapi.com/v1/current.json?key=" + apiKey +
-      "&q=" + melhor.lat + "," + melhor.lon + "&lang=pt"
+      "&q=id:" + brasileira.id + "&lang=pt"
     );
 
     if (data.error) {
@@ -106,7 +69,7 @@ const server = http.createServer(async function(req, res) {
     else if (cond.indexOf("parcialmente") !== -1) emoji = "\uD83C\uDF24\uFE0F";
 
     res.end(
-      emoji + " " + municipio.nome + ", " + ufSigla + " | " +
+      emoji + " " + data.location.name + ", " + data.location.region + " | " +
       "\uD83C\uDF21\uFE0F " + data.current.temp_c + "C (sensacao " + data.current.feelslike_c + "C) | " +
       data.current.condition.text + " | " +
       "Umidade " + data.current.humidity + "% | " +
