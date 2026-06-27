@@ -31,7 +31,7 @@ const server = http.createServer(async function(req, res) {
     const apiKey = "3a9be70b9ba044e3a81150545262206";
     const data = await get(
       "https://api.weatherapi.com/v1/current.json?key=" + apiKey +
-      "&q=" + encodeURIComponent(cidade + ", Brazil") + "&lang=pt"
+      "&q=" + encodeURIComponent(cidade + ", Brasil, BR") + "&lang=pt"
     );
 
     if (data.error) {
